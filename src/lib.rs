@@ -1,6 +1,6 @@
 use std::{
-    env::Args,
     error::Error,
+    fmt::Debug,
     fs::{self, File},
     io::{self, Read, Write},
     path::Path,
@@ -15,31 +15,34 @@ enum Action {
     Add,
 }
 
+impl Debug for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Action::Get => "Get",
+            Action::Add => "Add",
+        })
+    }
+}
+
 enum Target {
     Post,
     Favorites,
 }
 
-struct Strings {
+impl Debug for Target {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Target::Post => "Post",
+            Target::Favorites => "Favorites",
+        })
+    }
+}
+
+pub struct SessionOptions {
     api_key: Option<String>,
     user_id: Option<String>,
     pass_hash: Option<String>,
     fringe_benefits: Option<String>,
-}
-
-impl Default for Strings {
-    fn default() -> Self {
-        Self {
-            api_key: None,
-            user_id: None,
-            pass_hash: None,
-            fringe_benefits: None,
-        }
-    }
-}
-
-struct Config {
-    strings: Strings,
     action: Action,
     target: Target,
     begin: Option<u64>,
@@ -47,136 +50,133 @@ struct Config {
     tags: Option<String>,
     file: Option<String>,
     folder: Option<String>,
-    no_api: bool,
-    quick_mode: bool,
+    use_api: bool,
+    quick: bool,
 }
 
-struct Instance {
-    inner: Config,
+pub struct Session {
+    options: SessionOptions,
 }
 
-impl Instance {
-    fn new() -> Self {
+impl Session {
+    pub fn options() -> SessionOptions {
+        SessionOptions::default()
+    }
+
+    async fn run(opt: SessionOptions) -> Result<(), Box<dyn Error>> {
+        dbg!(opt);
+        Ok(())
+    }
+}
+
+impl SessionOptions {
+    pub fn user_id(&mut self, s: &str) -> &mut Self {
+        self.user_id = Some(s.to_string());
+        self
+    }
+    pub fn api_key(&mut self, s: &str) -> &mut Self {
+        self.api_key = Some(s.to_string());
+        self
+    }
+    pub fn pass_hash(&mut self, s: &str) -> &mut Self {
+        self.pass_hash = Some(s.to_string());
+        self
+    }
+    pub fn fringe_benefits(&mut self, s: &str) -> &mut Self {
+        self.fringe_benefits = Some(s.to_string());
+        self
+    }
+    pub fn get(&mut self) -> &mut Self {
+        self.action = Action::Get;
+        self
+    }
+    pub fn add(&mut self) -> &mut Self {
+        self.action = Action::Add;
+        self
+    }
+    pub fn post(&mut self) -> &mut Self {
+        self.target = Target::Post;
+        self
+    }
+    pub fn favorites(&mut self) -> &mut Self {
+        self.target = Target::Favorites;
+        self
+    }
+    pub fn begin(&mut self, n: u64) -> &mut Self {
+        self.begin = Some(n);
+        self
+    }
+    pub fn end(&mut self, n: u64) -> &mut Self {
+        self.end = Some(n);
+        self
+    }
+    pub fn tags(&mut self, s: &str) -> &mut Self {
+        self.tags = Some(s.to_string());
+        self
+    }
+    pub fn file(&mut self, s: &str) -> &mut Self {
+        self.file = Some(s.to_string());
+        self
+    }
+    pub fn folder(&mut self, s: &str) -> &mut Self {
+        self.folder = Some(s.to_string());
+        self
+    }
+    pub fn use_api(&mut self, b: bool) -> &mut Self {
+        self.use_api = b;
+        self
+    }
+    pub fn quick(&mut self, b: bool) -> &mut Self {
+        self.quick = b;
+        self
+    }
+
+    pub async fn run(self) -> Result<(), Box<dyn Error>> {
+        self._run().await
+    }
+    async fn _run(self) -> Result<(), Box<dyn Error>> {
+        Session::run(self).await
+    }
+}
+
+impl Default for SessionOptions {
+    fn default() -> Self {
         Self {
-            inner: Config {
-                strings: Strings::default(),
-                action: Action::Get,
-                target: Target::Post,
-                begin: None,
-                end: None,
-                tags: None,
-                file: None,
-                folder: None,
-                no_api: true,
-                quick_mode: false,
-            }
+            api_key: None,
+            user_id: None,
+            pass_hash: None,
+            fringe_benefits: None,
+            action: Action::Get,
+            target: Target::Post,
+            begin: None,
+            end: None,
+            tags: None,
+            file: None,
+            folder: None,
+            use_api: true,
+            quick: false,
         }
     }
 }
 
-pub async fn build(mut args: Args) -> Result<(), Box<dyn Error>> {
-    let api_key = Some(dotenv::var("api_key").unwrap());
-    let user_id = Some(dotenv::var("user_id").unwrap());
-    let pass_hash = Some(dotenv::var("pass_hash").unwrap());
-    let fringe_benefits = Some(dotenv::var("fringeBenefits").unwrap());
-    let strings = Strings {
-        api_key,
-        user_id,
-        pass_hash,
-        fringe_benefits,
-    };
-
-    let action: Action;
-    let target: Target;
-    match args.nth(1) {
-        Some(s) if s == "get" => action = Action::Get,
-        Some(s) if s == "add" => action = Action::Add,
-        Some(_) | None => {
-            show_help();
-            return Ok(());
-        }
+impl Debug for SessionOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionOptions")
+            .field("api_key", &self.api_key)
+            .field("user_id", &self.user_id)
+            .field("pass_hash", &self.pass_hash)
+            .field("fringe_benefits", &self.fringe_benefits)
+            .field("action", &self.action)
+            .field("target", &self.target)
+            .field("begin", &self.begin)
+            .field("end", &self.end)
+            .field("tags", &self.tags)
+            .field("file", &self.file)
+            .field("folder", &self.folder)
+            .field("use_api", &self.use_api)
+            .field("quick", &self.quick)
+            .finish()
     }
-    match args.next() {
-        Some(s) if s == "post" => target = Target::Post,
-        Some(s) if s == "favorites" => target = Target::Favorites,
-        Some(_) | None => {
-            show_help();
-            return Ok(());
-        }
-    }
-
-    let mut begin: Option<u64> = None;
-    let mut end: Option<u64> = None;
-    let mut file_path: Option<String> = None;
-    let mut folder: Option<String> = None;
-    let mut tags: Option<String> = None;
-    let mut no_api: bool = false;
-    let mut quick_mode: bool = false;
-    let config = loop {
-        match args.next() {
-            Some(s) if s == "from" => match args.next() {
-                Some(n) => begin = Some(n.parse::<u64>().unwrap()),
-                None => {
-                    show_help();
-                    return Ok(());
-                }
-            },
-            Some(s) if s == "to" => match args.next() {
-                Some(n) => end = Some(n.parse::<u64>().unwrap()),
-                None => {
-                    show_help();
-                    return Ok(());
-                }
-            },
-            Some(s) if s == "by" => match args.next() {
-                Some(p) => file_path = Some(p),
-                None => {
-                    show_help();
-                    return Ok(());
-                }
-            },
-            Some(s) if s == "into" => match args.next() {
-                Some(p) => folder = Some(p),
-                None => {
-                    show_help();
-                    return Ok(());
-                }
-            },
-            Some(s) if s == "with" => match args.next() {
-                Some(p) => tags = Some(p),
-                None => {
-                    show_help();
-                    return Ok(());
-                }
-            },
-            Some(s) if s == "noapi" => {
-                no_api = true;
-            }
-            Some(s) if s == "quick" => {
-                quick_mode = true;
-            }
-            Some(_) => {
-                show_help();
-                return Ok(());
-            }
-            None => {
-                break Config {
-                    strings,
-                    action,
-                    target,
-                    begin,
-                    end,
-                    tags,
-                    file: file_path,
-                    folder,
-                    no_api,
-                    quick_mode,
-                }
-            }
-        }
-    };
-
-    Ok(())
 }
 
 pub fn show_help() {
@@ -185,7 +185,7 @@ pub fn show_help() {
     println!(
         "getbooru add favorites by urls.txt // add posts listed in links.txt to your favorites"
     );
-    println!("getbooru get page by tags.txt with black_legwear straight from 6 to 9 // y'know what it means");
+    println!("getbooru get post by tags.txt with game_cg from 6 to 9 // y'know what it means");
 }
 
 fn extract_url(res: &str) -> &str {
