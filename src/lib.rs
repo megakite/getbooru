@@ -8,7 +8,6 @@ use std::{
 
 const PID_STEP_VIEW: u64 = 50;
 const PID_STEP_LIST: u64 = 42;
-
 const TITLE_LENGTH_LIMIT: usize = 100;
 
 enum Action {
@@ -21,19 +20,6 @@ enum Target {
     Favorites,
 }
 
-struct Config {
-    action: Action,
-    target: Target,
-    strings: Strings,
-    begin: Option<u64>,
-    end: Option<u64>,
-    tags: Option<String>,
-    file_path: Option<String>,
-    folder: Option<String>,
-    no_api: bool,
-    quick_mode: bool,
-}
-
 struct Strings {
     api_key: Option<String>,
     user_id: Option<String>,
@@ -41,30 +27,67 @@ struct Strings {
     fringe_benefits: Option<String>,
 }
 
-pub async fn build(mut args: Args) -> Result<(), Box<dyn Error>> {
-    dbg!(&args);
+impl Default for Strings {
+    fn default() -> Self {
+        Self {
+            api_key: None,
+            user_id: None,
+            pass_hash: None,
+            fringe_benefits: None,
+        }
+    }
+}
 
+struct Config {
+    strings: Strings,
+    action: Action,
+    target: Target,
+    begin: Option<u64>,
+    end: Option<u64>,
+    tags: Option<String>,
+    file: Option<String>,
+    folder: Option<String>,
+    no_api: bool,
+    quick_mode: bool,
+}
+
+struct Instance {
+    inner: Config,
+}
+
+impl Instance {
+    fn new() -> Self {
+        Self {
+            inner: Config {
+                strings: Strings::default(),
+                action: Action::Get,
+                target: Target::Post,
+                begin: None,
+                end: None,
+                tags: None,
+                file: None,
+                folder: None,
+                no_api: true,
+                quick_mode: false,
+            }
+        }
+    }
+}
+
+pub async fn build(mut args: Args) -> Result<(), Box<dyn Error>> {
     let api_key = Some(dotenv::var("api_key").unwrap());
     let user_id = Some(dotenv::var("user_id").unwrap());
     let pass_hash = Some(dotenv::var("pass_hash").unwrap());
     let fringe_benefits = Some(dotenv::var("fringeBenefits").unwrap());
-
-    let action: Action;
-    let target: Target;
     let strings = Strings {
         api_key,
         user_id,
         pass_hash,
         fringe_benefits,
     };
-    let mut begin: Option<u64> = None;
-    let mut end: Option<u64> = None;
-    let mut file_path: Option<String> = None;
-    let mut folder: Option<String> = None;
-    let mut tags: Option<String> = None;
-    let mut no_api: bool = false;
-    let mut quick_mode: bool = false;
 
+    let action: Action;
+    let target: Target;
     match args.nth(1) {
         Some(s) if s == "get" => action = Action::Get,
         Some(s) if s == "add" => action = Action::Add,
@@ -82,70 +105,69 @@ pub async fn build(mut args: Args) -> Result<(), Box<dyn Error>> {
         }
     }
 
+    let mut begin: Option<u64> = None;
+    let mut end: Option<u64> = None;
+    let mut file_path: Option<String> = None;
+    let mut folder: Option<String> = None;
+    let mut tags: Option<String> = None;
+    let mut no_api: bool = false;
+    let mut quick_mode: bool = false;
     let config = loop {
         match args.next() {
-            Some(s) => {
-                if s == "from" {
-                    match args.next() {
-                        Some(n) => begin = Some(n.parse::<u64>().unwrap()),
-                        None => {
-                            show_help();
-                            return Ok(());
-                        }
-                    }
+            Some(s) if s == "from" => match args.next() {
+                Some(n) => begin = Some(n.parse::<u64>().unwrap()),
+                None => {
+                    show_help();
+                    return Ok(());
                 }
-                if s == "to" {
-                    match args.next() {
-                        Some(n) => end = Some(n.parse::<u64>().unwrap()),
-                        None => {
-                            show_help();
-                            return Ok(());
-                        }
-                    }
+            },
+            Some(s) if s == "to" => match args.next() {
+                Some(n) => end = Some(n.parse::<u64>().unwrap()),
+                None => {
+                    show_help();
+                    return Ok(());
                 }
-                if s == "by" {
-                    match args.next() {
-                        Some(p) => file_path = Some(p),
-                        None => {
-                            show_help();
-                            return Ok(());
-                        }
-                    }
+            },
+            Some(s) if s == "by" => match args.next() {
+                Some(p) => file_path = Some(p),
+                None => {
+                    show_help();
+                    return Ok(());
                 }
-                if s == "into" {
-                    match args.next() {
-                        Some(p) => folder = Some(p),
-                        None => {
-                            show_help();
-                            return Ok(());
-                        }
-                    }
+            },
+            Some(s) if s == "into" => match args.next() {
+                Some(p) => folder = Some(p),
+                None => {
+                    show_help();
+                    return Ok(());
                 }
-                if s == "with" {
-                    match args.next() {
-                        Some(p) => tags = Some(p),
-                        None => {
-                            show_help();
-                            return Ok(());
-                        }
-                    }
+            },
+            Some(s) if s == "with" => match args.next() {
+                Some(p) => tags = Some(p),
+                None => {
+                    show_help();
+                    return Ok(());
                 }
-                if s == "noapi" {
-                    no_api = true;
-                }
-                if s == "quick" {
-                    quick_mode = true;
-                }
+            },
+            Some(s) if s == "noapi" => {
+                no_api = true;
+            }
+            Some(s) if s == "quick" => {
+                quick_mode = true;
+            }
+            Some(_) => {
+                show_help();
+                return Ok(());
             }
             None => {
                 break Config {
+                    strings,
                     action,
                     target,
-                    strings,
                     begin,
                     end,
                     tags,
-                    file_path,
+                    file: file_path,
                     folder,
                     no_api,
                     quick_mode,
