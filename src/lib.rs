@@ -7,6 +7,7 @@ use std::{
 
 const PID_STEP_VIEW: u64 = 50;
 const PID_STEP_LIST: u64 = 42;
+
 const TITLE_LENGTH_LIMIT: usize = 100;
 
 fn extract_url(res: &str) -> &str {
@@ -55,7 +56,7 @@ async fn init_webdriver_client(
     Ok(c)
 }
 
-async fn download_noapi(id: &str) -> Result<(), Box<dyn Error>> {
+async fn download_noapi(id: &str, folder: &str) -> Result<(), Box<dyn Error>> {
     let src = String::from("https://gelbooru.com/index.php?page=post&s=view&id=") + id;
     let c = reqwest::Client::builder().build()?;
 
@@ -65,10 +66,9 @@ async fn download_noapi(id: &str) -> Result<(), Box<dyn Error>> {
 
     let url = extract_url(&res);
     let title = extract_title(&res, TITLE_LENGTH_LIMIT);
-    let folder = String::from("saved");
     let extention = Path::new(url).extension().unwrap().to_str().unwrap();
 
-    let path_string = folder + "/" + id + " " + title.as_ref() + "." + extention;
+    let path_string = String::from(folder) + "/" + id + " " + title.as_ref() + "." + extention;
     if Path::new(&path_string).exists() {
         println!("already exists, skipping.");
         return Ok(());
@@ -88,6 +88,7 @@ async fn get_list_noapi(
     init_page: u64,
     page_type: &str,
     token: &str,
+    folder: &str,
 ) -> Result<(), Box<dyn Error>> {
     let base =
         String::from("https://gelbooru.com/index.php?page=") + page_type + "&s=list&" + token;
@@ -129,7 +130,7 @@ async fn get_list_noapi(
                 }
             }
 
-            download_noapi(id).await?;
+            download_noapi(id, folder).await?;
         }
     }
 
@@ -141,6 +142,7 @@ async fn get_view(
     init_page: u64,
     page_type: &str,
     token: &str,
+    folder: &str,
 ) -> Result<(), Box<dyn Error>> {
     let base =
         String::from("https://gelbooru.com/index.php?page=") + page_type + "&s=view&" + token;
@@ -182,7 +184,7 @@ async fn get_view(
                 }
             }
 
-            download_noapi(id).await?;
+            download_noapi(id, folder).await?;
         }
     }
 
@@ -234,13 +236,14 @@ pub async fn get_favorites(
     pass_hash: &str,
     user_id: &str,
     fringe_benefits: &str,
+    folder: &str,
 ) -> Result<(), Box<dyn Error>> {
     println!("Start getting favorites...");
 
     let client = init_webdriver_client(pass_hash, user_id, fringe_benefits).await?;
 
     let token = String::from("id=") + user_id;
-    get_view(&client, init_page, "favorites", token.as_str()).await?;
+    get_view(&client, init_page, "favorites", token.as_str(), folder).await?;
 
     println!("Finished getting favorites.");
 
@@ -254,6 +257,7 @@ pub async fn get_posts_noapi(
     pass_hash: &str,
     user_id: &str,
     fringe_benefits: &str,
+    folder: &str,
 ) -> Result<(), Box<dyn Error>> {
     println!("Start getting by tags...");
 
@@ -282,7 +286,7 @@ pub async fn get_posts_noapi(
         println!("Current tags: {tag}+{common_tag}");
 
         let token = String::from("tags=") + tag + "+" + common_tag;
-        get_list_noapi(&client, init_page, "post", token.as_str()).await?;
+        get_list_noapi(&client, init_page, "post", token.as_str(), folder).await?;
     }
 
     println!("Finished getting all tags.");
@@ -291,12 +295,11 @@ pub async fn get_posts_noapi(
 }
 
 pub async fn get_posts(
-    path_tags: &str,
+    file_tags: &str,
     common_tag: &str,
     api_key: &str,
     user_id: &str,
     folder: &str,
-    straight: bool,
 ) -> Result<(), Box<dyn Error>> {
     println!("Start getting by tags...");
 
@@ -305,7 +308,7 @@ pub async fn get_posts(
         + "&user_id="
         + user_id;
 
-    let mut file_tags = File::open(path_tags)?;
+    let mut file_tags = File::open(file_tags)?;
     let mut buf = String::new();
     file_tags.read_to_string(&mut buf)?;
     for tag in buf.lines() {
@@ -330,26 +333,18 @@ pub async fn get_posts(
                 .unwrap()
                 .text()
                 .unwrap();
+            let mut tags = nodes
+                .find(|n| n.has_tag_name("tags"))
+                .unwrap()
+                .text()
+                .unwrap()
+                .to_string();
+            tags.truncate(TITLE_LENGTH_LIMIT);
 
-            let mut name: String;
-            if straight {
-                let tags = nodes
-                    .find(|n| n.has_tag_name("tags"))
-                    .unwrap()
-                    .text()
-                    .unwrap();
-                name = tags.to_string();
-                name.truncate(TITLE_LENGTH_LIMIT);
-            } else {
-                let url = String::from("https://gelbooru.com/index.php?page=post&s=view&id=") + id;
-                let res = reqwest::get(url).await?.text().await?;
-                name = extract_title(&res, TITLE_LENGTH_LIMIT).to_string();
-            }
             let extension = file_url.split_terminator('.').next_back().unwrap();
             let path_string =
-                String::from(folder) + "/" + id + " " + name.as_str() + "." + extension;
+                String::from(folder) + "/" + id + " " + tags.as_str() + "." + extension;
             let path = Path::new(path_string.as_str());
-
             if path.exists() {
                 println!("{id} already exists, skipping.");
                 continue;
