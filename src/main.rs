@@ -1,3 +1,12 @@
+pub fn show_help() {
+    println!("Example usage:");
+    println!("getbooru get favorites into saved // get all of your favorites into ./saved/");
+    println!(
+        "getbooru add favorites by urls.txt // add posts listed in links.txt to your favorites"
+    );
+    println!("getbooru get post by tags.txt with game_cg from 6 to 9 // y'know what it means");
+}
+
 #[tokio::main]
 async fn main() {
     let mut opt = getbooru::Session::options();
@@ -11,23 +20,30 @@ async fn main() {
     opt.pass_hash(&pass_hash);
     opt.fringe_benefits(&fringe_benefits);
 
+    std::fs::File::options();
     let mut args = std::env::args();
     match args.nth(1) {
-        Some(s) if s == "get" => {
-            opt.get();
-        }
-        Some(s) if s == "add" => {
-            opt.add();
-        }
-        Some(_) | None => getbooru::show_help(),
-    }
-    match args.next() {
-        Some(s) if s == "post" => {
-            opt.post();
-        }
-        Some(s) if s == "favorites" => {
-            opt.favorites();
-        }
+        Some(s) if s == "get" => match args.next() {
+            Some(s) if s == "post" => {
+                opt.get_post();
+            }
+            Some(s) if s == "favorites" => {
+                opt.get_favorites();
+            }
+            Some(_) | None => {
+                getbooru::show_help();
+                std::process::exit(1);
+            }
+        },
+        Some(s) if s == "add" => match args.next() {
+            Some(s) if s == "favorites" => {
+                opt.add_favorites();
+            }
+            Some(_) | None => {
+                getbooru::show_help();
+                std::process::exit(1);
+            }
+        },
         Some(_) | None => getbooru::show_help(),
     }
 
@@ -39,7 +55,7 @@ async fn main() {
                 }
                 None => {
                     getbooru::show_help();
-                    break;
+                    std::process::exit(1);
                 }
             },
             Some(s) if s == "to" => match args.next() {
@@ -48,7 +64,7 @@ async fn main() {
                 }
                 None => {
                     getbooru::show_help();
-                    break;
+                    std::process::exit(1);
                 }
             },
             Some(s) if s == "by" => match args.next() {
@@ -57,7 +73,7 @@ async fn main() {
                 }
                 None => {
                     getbooru::show_help();
-                    break;
+                    std::process::exit(1);
                 }
             },
             Some(s) if s == "into" => match args.next() {
@@ -66,7 +82,7 @@ async fn main() {
                 }
                 None => {
                     getbooru::show_help();
-                    break;
+                    std::process::exit(1);
                 }
             },
             Some(s) if s == "with" => match args.next() {
@@ -75,7 +91,7 @@ async fn main() {
                 }
                 None => {
                     getbooru::show_help();
-                    break;
+                    std::process::exit(1);
                 }
             },
             Some(s) if s == "noapi" => {
@@ -86,7 +102,7 @@ async fn main() {
             }
             Some(_) => {
                 getbooru::show_help();
-                break;
+                std::process::exit(1);
             }
             None => {
                 break;
@@ -94,5 +110,5 @@ async fn main() {
         }
     }
 
-    opt.run().await.unwrap();
+    opt.start().await.unwrap();
 }
