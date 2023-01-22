@@ -4,7 +4,7 @@ async fn main() {
     let api_key = dotenv::var("api_key").unwrap();
 
     let file_tags = "tags.txt";
-    let common_tag = "solo";
+    let common_tag = "game_cg";
     let folder = "saved";
 
     getbooru::get_posts(file_tags, common_tag, &api_key, &user_id, folder)
