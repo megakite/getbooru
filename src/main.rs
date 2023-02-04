@@ -20,18 +20,17 @@ async fn main() {
     opt.pass_hash(&pass_hash);
     opt.fringe_benefits(&fringe_benefits);
 
-    std::fs::File::options();
     let mut args = std::env::args();
     match args.nth(1) {
         Some(s) if s == "get" => match args.next() {
-            Some(s) if s == "post" => {
-                opt.get_post();
+            Some(s) if s == "posts" => {
+                opt.get_posts();
             }
             Some(s) if s == "favorites" => {
                 opt.get_favorites();
             }
             Some(_) | None => {
-                getbooru::show_help();
+                show_help();
                 std::process::exit(1);
             }
         },
@@ -40,11 +39,11 @@ async fn main() {
                 opt.add_favorites();
             }
             Some(_) | None => {
-                getbooru::show_help();
+                show_help();
                 std::process::exit(1);
             }
         },
-        Some(_) | None => getbooru::show_help(),
+        Some(_) | None => show_help(),
     }
 
     loop {
@@ -54,7 +53,7 @@ async fn main() {
                     opt.begin(n.parse::<u64>().unwrap());
                 }
                 None => {
-                    getbooru::show_help();
+                    show_help();
                     std::process::exit(1);
                 }
             },
@@ -63,7 +62,7 @@ async fn main() {
                     opt.end(n.parse::<u64>().unwrap());
                 }
                 None => {
-                    getbooru::show_help();
+                    show_help();
                     std::process::exit(1);
                 }
             },
@@ -72,7 +71,7 @@ async fn main() {
                     opt.file(&p);
                 }
                 None => {
-                    getbooru::show_help();
+                    show_help();
                     std::process::exit(1);
                 }
             },
@@ -81,7 +80,7 @@ async fn main() {
                     opt.folder(&p);
                 }
                 None => {
-                    getbooru::show_help();
+                    show_help();
                     std::process::exit(1);
                 }
             },
@@ -90,7 +89,7 @@ async fn main() {
                     opt.tags(&p);
                 }
                 None => {
-                    getbooru::show_help();
+                    show_help();
                     std::process::exit(1);
                 }
             },
@@ -101,7 +100,7 @@ async fn main() {
                 opt.quick(true);
             }
             Some(_) => {
-                getbooru::show_help();
+                show_help();
                 std::process::exit(1);
             }
             None => {
@@ -110,5 +109,5 @@ async fn main() {
         }
     }
 
-    opt.start().await.unwrap();
+    opt.create().start().await.unwrap();
 }
