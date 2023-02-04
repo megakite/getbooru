@@ -6,11 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dotenv = "0.15"
-fantoccini = "0.19"
+dotenv = "0.15.0"
+fantoccini = "0.19.3"
 html5ever = "0.26.0"
-regex = "1.7"
-reqwest = "0.11"
+regex = "1.7.1"
+reqwest = "0.11.14"
 roxmltree = "0.17.0"
-scraper = "0.12"
+scraper = "0.14.0"
 tokio = {version = "1", features = ["rt-multi-thread", "macros"]}
