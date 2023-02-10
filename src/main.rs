@@ -1,25 +1,32 @@
 pub fn show_help() {
     println!("Example usage:");
-    println!("getbooru get favorites // get all of your favorites into current directory");
-    println!("getbooru add favorites by urls.txt // add posts in links.txt to your favorites");
-    println!("getbooru get posts from 6 to 9 api quick // get posts in page 6-9, using api and quick mode");
-    println!("getbooru get posts by tags.txt with game_cg into saved // y'know what it means");
+    println!("getbooru get favorites // Get all of your favorites into current directory");
+    println!("getbooru add favorites by urls.txt // Add urls in links.txt to your favorites");
+    println!("getbooru get posts from 6 to 9 api // Get posts in page 6-9 using Gelbooru API");
+    println!(
+        "getbooru get posts with game_cg into dir // Get posts with tag 'game_cg' into ./dir/"
+    );
 }
 
 #[tokio::main]
 async fn main() {
     let mut opt = getbooru::Session::options();
 
-    let api_key = dotenv::var("api_key").unwrap();
-    let user_id = dotenv::var("user_id").unwrap();
-    let pass_hash = dotenv::var("pass_hash").unwrap();
-    let fringe_benefits = dotenv::var("fringeBenefits").unwrap();
-    opt.api_key(&api_key);
-    opt.user_id(&user_id);
-    opt.pass_hash(&pass_hash);
-    opt.fringe_benefits(&fringe_benefits);
+    if let Some(api_key) = dotenv::var("api_key").ok() {
+        opt.api_key(api_key);
+    }
+    if let Some(user_id) = dotenv::var("user_id").ok() {
+        opt.user_id(user_id);
+    }
+    if let Some(pass_hash) = dotenv::var("pass_hash").ok() {
+        opt.pass_hash(pass_hash);
+    }
+    if let Some(fringe_benefits) = dotenv::var("fringeBenefits").ok() {
+        opt.fringe_benefits(fringe_benefits);
+    }
 
     let mut args = std::env::args();
+
     match args.nth(1) {
         Some(s) if s == "get" => match args.next() {
             Some(s) if s == "posts" => {
@@ -30,7 +37,7 @@ async fn main() {
             }
             Some(_) | None => {
                 show_help();
-                std::process::exit(1);
+                return;
             }
         },
         Some(s) if s == "add" => match args.next() {
@@ -39,65 +46,57 @@ async fn main() {
             }
             Some(_) | None => {
                 show_help();
-                std::process::exit(1);
+                return;
             }
         },
-        Some(_) => {
+        Some(_) | None => {
             show_help();
-            std::process::exit(1);
-        },
-        None => {}
+            return;
+        }
     }
 
-    let mut error = false;
-    loop {
-        match args.next() {
-            Some(s) if s == "from" => match args.next() {
-                Some(n) => {
-                    opt.begin(n.parse::<u64>().unwrap());
-                }
-                None => error = true,
-            },
-            Some(s) if s == "to" => match args.next() {
-                Some(n) => {
-                    opt.end(n.parse::<u64>().unwrap());
-                }
-                None => error = true,
-            },
-            Some(s) if s == "by" => match args.next() {
-                Some(p) => {
-                    opt.file(&p);
-                }
-                None => error = true,
-            },
-            Some(s) if s == "into" => match args.next() {
-                Some(p) => {
-                    opt.folder(&p);
-                }
-                None => error = true,
-            },
-            Some(s) if s == "with" => match args.next() {
-                Some(p) => {
-                    opt.tags(&p);
-                }
-                None => error = true,
-            },
-            Some(s) if s == "api" => {
-                opt.use_api(true);
+    while let Some(s) = args.next() {
+        if s == "from" {
+            if let Some(n) = args.next() {
+                opt.begin(n.parse::<u64>().unwrap());
+                continue;
             }
-            Some(s) if s == "quick" => {
-                opt.quick(true);
+        }
+        if s == "to" {
+            if let Some(n) = args.next() {
+                opt.end(n.parse::<u64>().unwrap());
+                continue;
             }
-            Some(_) => error = true,
-            None => {
-                break;
+        }
+        if s == "by" {
+            if let Some(p) = args.next() {
+                opt.file(p);
+                continue;
             }
+        }
+        if s == "into" {
+            if let Some(p) = args.next() {
+                opt.folder(p);
+                continue;
+            }
+        }
+        if s == "with" {
+            if let Some(p) = args.next() {
+                opt.tags(p);
+                continue;
+            }
+        }
+        if s == "api" {
+            opt.use_api(true);
+            continue;
+        }
+        if s == "quick" {
+            opt.quick(true);
+            continue;
         }
 
-        if error {
-            show_help();
-            std::process::exit(1);
-        }
+        show_help();
+        return;
     }
 
     opt.create().start().await.unwrap();
