@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     error::Error,
     fs::{self, File},
     io::{self, Read, Write},
@@ -10,7 +11,7 @@ const PID_STEP_VIEW: u64 = 50;
 const PID_STEP_LIST: u64 = 42;
 const TITLE_LENGTH_LIMIT: usize = 100;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 enum Action {
     #[default]
     GetPosts,
@@ -18,7 +19,7 @@ enum Action {
     AddFavorites,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct SessionOptions {
     action: Action,
     // Cookies and tokens
@@ -56,20 +57,20 @@ impl SessionOptions {
         self
     }
 
-    pub fn user_id(&mut self, s: &str) -> &mut Self {
-        self.user_id = Some(s.to_string());
+    pub fn user_id(&mut self, s: impl Into<String>) -> &mut Self {
+        self.user_id = Some(s.into());
         self
     }
-    pub fn api_key(&mut self, s: &str) -> &mut Self {
-        self.api_key = Some(s.to_string());
+    pub fn api_key(&mut self, s: impl Into<String>) -> &mut Self {
+        self.api_key = Some(s.into());
         self
     }
-    pub fn pass_hash(&mut self, s: &str) -> &mut Self {
-        self.pass_hash = Some(s.to_string());
+    pub fn pass_hash(&mut self, s: impl Into<String>) -> &mut Self {
+        self.pass_hash = Some(s.into());
         self
     }
-    pub fn fringe_benefits(&mut self, s: &str) -> &mut Self {
-        self.fringe_benefits = Some(s.to_string());
+    pub fn fringe_benefits(&mut self, s: impl Into<String>) -> &mut Self {
+        self.fringe_benefits = Some(s.into());
         self
     }
 
@@ -82,16 +83,16 @@ impl SessionOptions {
         self
     }
 
-    pub fn tags(&mut self, s: &str) -> &mut Self {
-        self.tags = Some(s.to_string());
+    pub fn tags(&mut self, s: impl Into<String>) -> &mut Self {
+        self.tags = Some(s.into());
         self
     }
-    pub fn file(&mut self, s: &str) -> &mut Self {
-        self.file = Some(s.to_string());
+    pub fn file(&mut self, s: impl Into<String>) -> &mut Self {
+        self.file = Some(s.into());
         self
     }
-    pub fn folder(&mut self, s: &str) -> &mut Self {
-        self.folder = Some(s.to_string());
+    pub fn folder(&mut self, s: impl Into<String>) -> &mut Self {
+        self.folder = Some(s.into());
         self
     }
 
@@ -104,8 +105,8 @@ impl SessionOptions {
         self
     }
 
-    pub fn create(&self) -> Session {
-        Session::create(&self)
+    pub fn create(self) -> Session {
+        Session::create(self)
     }
 }
 
@@ -119,22 +120,37 @@ impl Session {
     }
 
     fn extract_file_url(res: &str) -> &str {
-        let begin = res.find("content=\"https://").unwrap() + "content=\"".len();
-        let end = res.find("\" />\n\t\t<meta name=\"twitter:card\"").unwrap();
+        let re = regex::Regex::new(r"https://img3.gelbooru.com/(.*)\.[A-z0-9]+").unwrap();
+        let mat = re.find(res).unwrap();
 
-        &res[begin..end]
+        &res[mat.range()]
     }
 
-    fn extract_title(res: &str) -> std::borrow::Cow<str> {
-        let begin = res.find("<title>").unwrap() + "<title>".len();
-        let mut end = res.find("</title>").unwrap();
-        if end - begin > TITLE_LENGTH_LIMIT {
-            end = begin + TITLE_LENGTH_LIMIT;
-        }
-        let re = regex::Regex::new("[/\\?%*:|\"<>]").unwrap();
-        let title = re.replace_all(&res[begin..end], "_");
+    fn extract_id_from_url(url: &str) -> &str {
+        let re = regex::Regex::new("id=([0-9]+)&*").unwrap();
+        let cap = re.captures(url).unwrap();
+        let mat = cap.get(1).unwrap();
 
-        title
+        &url[mat.range()]
+    }
+
+    /// Extract post title from given response,
+    /// replacing all invalid characters across different platforms with `_`.
+    fn extract_title(res: &str) -> Cow<str> {
+        let re = regex::Regex::new("<title>(.*?)</title>").unwrap();
+        let cap = re.captures(res).unwrap();
+        let mat = cap.get(1).unwrap();
+        let range = if mat.range().len() < TITLE_LENGTH_LIMIT {
+            mat.range()
+        } else {
+            Range {
+                start: mat.start(),
+                end: mat.start() + TITLE_LENGTH_LIMIT,
+            }
+        };
+        let re = regex::Regex::new("[/\\?%*:|\"<>]").unwrap();
+
+        re.replace_all(&res[range], "_")
     }
 
     async fn new_client_webdriver(
@@ -152,103 +168,37 @@ impl Session {
 
         println!("adding cookies...");
 
-        if let Some(ui) = &self.options.user_id {
-            c.add_cookie(fantoccini::cookies::Cookie::new("user_id", ui.to_owned()))
-                .await?;
+        if let Some(user_id) = self.options.user_id.as_deref() {
+            let cookie = fantoccini::cookies::Cookie::new("user_id", user_id.to_owned());
+            c.add_cookie(cookie).await?;
         }
-        if let Some(ph) = &self.options.pass_hash {
-            c.add_cookie(fantoccini::cookies::Cookie::new("pass_hash", ph.to_owned()))
-                .await?;
+        if let Some(pass_hash) = self.options.pass_hash.as_deref() {
+            let cookie = fantoccini::cookies::Cookie::new("pass_hash", pass_hash.to_owned());
+            c.add_cookie(cookie).await?;
         }
-        if let Some(fb) = &self.options.fringe_benefits {
-            c.add_cookie(fantoccini::cookies::Cookie::new(
-                "fringeBenefits",
-                fb.to_owned(),
-            ))
-            .await?;
+        if let Some(fringe_benefits) = self.options.fringe_benefits.as_deref() {
+            let cookie = fantoccini::cookies::Cookie::new("fringeBenefits", fringe_benefits.to_owned());
+            c.add_cookie(cookie).await?;
         }
 
         Ok(c)
     }
 
     fn new_client_http(&self) -> Result<reqwest::Client, reqwest::Error> {
-        let mut headers = reqwest::header::HeaderMap::new();
         let cookie = format!(
             "user_id={}; pass_hash={}; fringeBenefits={}",
-            self.options.user_id.as_ref().unwrap_or(&String::new()),
-            self.options.pass_hash.as_ref().unwrap_or(&String::new()),
-            self.options
-                .fringe_benefits
-                .as_ref()
-                .unwrap_or(&String::new()),
+            self.options.user_id.as_deref().unwrap_or_default(),
+            self.options.pass_hash.as_deref().unwrap_or_default(),
+            self.options.fringe_benefits.as_deref().unwrap_or_default()
         );
+        let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             reqwest::header::COOKIE,
-            reqwest::header::HeaderValue::from_str(&cookie).unwrap(),
+            reqwest::header::HeaderValue::from_str(&cookie)
+                .expect("invalid characters found generating cookie"),
         );
 
         reqwest::Client::builder().default_headers(headers).build()
-    }
-
-    async fn get_view(
-        &self,
-        client: &fantoccini::Client,
-        token: &str,
-    ) -> Result<(), Box<dyn Error>> {
-        let page_type = "post";
-
-        let base = format!(
-            "https://gelbooru.com/index.php?page={}&s=view&{}",
-            page_type, token
-        );
-        let downloaded: Vec<_> = fs::read_dir("saved/")?.collect();
-
-        let range = Range {
-            start: self.options.start.unwrap_or(1),
-            end: self.options.end.unwrap_or(u64::MAX),
-        };
-        for page in range {
-            print!("Entering {page_type}, page {page}...",);
-            io::stdout().flush().expect("cannot flush stdout");
-
-            let pid = (page - 1) * PID_STEP_VIEW;
-            let url = format!("{}&pid={}", base, pid);
-            client.goto(&url).await?;
-
-            println!("getting elements...");
-
-            let a_s = client
-                .find_all(fantoccini::Locator::Css("span.thumb a:first-child"))
-                .await?;
-            if a_s.is_empty() {
-                println!("No elements present. ");
-
-                break;
-            }
-
-            'outer: for a in a_s {
-                print!("Extracting information...");
-                io::stdout().flush().expect("cannot flush stdout");
-
-                let src = a.attr("href").await?.unwrap();
-                let begin = src.find("&id=").unwrap() + "&id=".len();
-                let end = src.find("&tags=").unwrap_or(src.len() + 1);
-                let id = &src[begin..end];
-
-                for file in &downloaded {
-                    let name = file.as_ref().unwrap().file_name();
-                    if name.to_str().unwrap().starts_with(id) {
-                        println!("{id} already exists, skipping.");
-                        continue 'outer;
-                    }
-                }
-
-                let client = Self::new_client_http(&self)?;
-                self.download_noapi(&client, id).await?;
-            }
-        }
-
-        Ok(())
     }
 
     async fn add_to_favorites(&self) -> Result<(), Box<dyn Error>> {
@@ -284,6 +234,9 @@ impl Session {
         }
 
         println!("Finished adding to favorites.");
+
+        client.close().await?;
+
         Ok(())
     }
 
@@ -292,16 +245,66 @@ impl Session {
 
         let client = Self::new_client_webdriver(&self).await?;
 
-        let token = format!(
-            "id={}",
-            self.options
-                .user_id
-                .as_ref()
-                .expect("user_id is not specified")
+        let base = format!(
+            "https://gelbooru.com/index.php?page=favorites&s=view&id={}",
+            self.options.user_id.as_deref().unwrap_or_default()
         );
-        Self::get_view(&self, &client, &token).await?;
+
+        let range = Range {
+            start: self.options.start.unwrap_or(1),
+            end: self.options.end.unwrap_or(u64::MAX),
+        };
+        for page in range {
+            print!("Entering favorites, page {page}...",);
+            io::stdout().flush().expect("cannot flush stdout");
+
+            let pid = (page - 1) * PID_STEP_VIEW;
+            let url = format!("{}&pid={}", base, pid);
+            client.goto(&url).await?;
+
+            println!("getting elements...");
+
+            let a_s = client
+                .find_all(fantoccini::Locator::Css("span.thumb a:first-child"))
+                .await?;
+            if a_s.is_empty() {
+                println!("No elements present.");
+                break;
+            }
+
+            self.get_elements_webdriver(a_s).await?;
+        }
 
         println!("Finished getting favorites.");
+
+        client.close().await?;
+
+        Ok(())
+    }
+
+    async fn get_elements_webdriver(
+        &self,
+        a_s: Vec<fantoccini::elements::Element>,
+    ) -> Result<(), Box<dyn Error>> {
+        'outer: for a in a_s {
+            print!("Extracting information...");
+            io::stdout().flush().expect("cannot flush stdout");
+
+            let src = a.attr("href").await?.unwrap();
+            let id = Self::extract_id_from_url(&src);
+
+            let saved = fs::read_dir(self.options.folder.as_deref().unwrap_or("."))?;
+            for file in saved {
+                let name = file.as_ref().unwrap().file_name();
+                if name.to_str().unwrap().starts_with(id) {
+                    println!("{id} already exists, skipping.");
+                    continue 'outer;
+                }
+            }
+
+            let client = Self::new_client_http(&self)?;
+            self.download_noapi(&client, id).await?;
+        }
 
         Ok(())
     }
@@ -316,71 +319,61 @@ impl Session {
                 "https://gelbooru.com/index.php?page=dapi&s=post&q=index&api_key={}&user_id={}",
                 self.options
                     .api_key
-                    .as_ref()
-                    .expect("api_key is not specified"),
+                    .as_deref()
+                    .ok_or("api_key is not specified")?,
                 self.options
                     .user_id
-                    .as_ref()
-                    .expect("user_id is not specified"),
+                    .as_deref()
+                    .ok_or("user_id is not specified")?,
             )
         } else {
             String::from("https://gelbooru.com/index.php?page=post&s=list")
         };
 
-        if let Some(f) = &self.options.file {
-            let mut buf = String::new();
-            File::open(f)?.read_to_string(&mut buf)?;
-
-            self.get_posts_by_buf(buf, base, client).await?;
-        } else {
-            self.get_posts_by_tag(base, client).await?;
-        }
+        self.get_posts_with_tags(base, client).await?;
 
         println!("Finished getting all tags.");
 
         Ok(())
     }
 
-    async fn get_posts_by_tag(
+    async fn get_posts_with_tags(
         &self,
         base: String,
         client: reqwest::Client,
     ) -> Result<(), Box<dyn Error>> {
-        if self.options.use_api {
-            self.get_posts_api(&base, self.options.tags.as_ref().unwrap_or(&String::new()))
-                .await?;
-        } else {
-            self.get_posts_noapi(
-                &base,
-                self.options.tags.as_ref().unwrap_or(&String::new()),
-                &client,
-            )
-            .await?;
-        }
+        if let Some(f) = self.options.file.as_deref() {
+            let mut buf = String::new();
+            File::open(f)?.read_to_string(&mut buf)?;
 
-        Ok(())
-    }
+            for current_tag in buf.lines() {
+                if current_tag.starts_with('#') {
+                    continue;
+                }
 
-    async fn get_posts_by_buf(
-        &self,
-        buf: String,
-        base: String,
-        client: reqwest::Client,
-    ) -> Result<(), Box<dyn Error>> {
-        for tag in buf.lines() {
-            if tag.starts_with('#') {
-                continue;
+                println!(
+                    "Current tags: {}+{}",
+                    current_tag,
+                    self.options.tags.as_deref().unwrap_or_default(),
+                );
+
+                if self.options.use_api {
+                    self.get_posts_api(&base, current_tag).await?;
+                } else {
+                    self.get_posts_noapi(&base, current_tag, &client).await?;
+                }
             }
-
-            println!(
-                "Current tags: {tag}+{}",
-                self.options.tags.as_ref().unwrap_or(&String::new()),
-            );
-
+        } else {
             if self.options.use_api {
-                self.get_posts_api(&base, tag).await?;
+                self.get_posts_api(&base, self.options.tags.as_deref().unwrap_or_default())
+                    .await?;
             } else {
-                self.get_posts_noapi(&base, tag, &client).await?;
+                self.get_posts_noapi(
+                    &base,
+                    self.options.tags.as_deref().unwrap_or_default(),
+                    &client,
+                )
+                .await?;
             }
         }
 
@@ -389,7 +382,7 @@ impl Session {
 
     async fn get_posts_noapi(
         &self,
-        base: &String,
+        base: &str,
         tag: &str,
         client: &reqwest::Client,
     ) -> Result<(), Box<dyn Error>> {
@@ -398,50 +391,54 @@ impl Session {
             end: self.options.end.unwrap_or(u64::MAX),
         };
         for page in range {
-            print!("Entering posts, page {page}...");
-            std::io::stdout().flush().expect("cannot flush stdout");
+            println!("Entering posts, page {page}...");
+            io::stdout().flush().expect("cannot flush stdout");
+
             let pid = (page - 1) * PID_STEP_LIST;
             let list_url = format!(
                 "{}&tags={}+{}&pid={}",
                 base,
                 tag,
-                self.options.tags.as_ref().unwrap_or(&String::new()),
+                self.options.tags.as_deref().unwrap_or_default(),
                 pid.to_string()
             );
-
-            println!("getting elements...");
-
             let res = client.get(list_url).send().await?.text().await?;
             let list = scraper::Html::parse_document(&res);
             let selector = scraper::Selector::parse("article.thumbnail-preview a").unwrap();
             let a_s: Vec<_> = list.select(&selector).collect();
             if a_s.is_empty() {
-                println!("No elements present.");
+                println!("no elements present.");
                 break;
             }
 
-            'outer: for a in a_s {
-                print!("Extracting information...");
-                io::stdout().flush().expect("cannot flush stdout");
+            self.get_elements_http(a_s, client).await?;
+        }
 
-                let src = a.value().attr("href").unwrap().to_string();
-                let start = src.find("&id=").unwrap() + "&id=".len();
-                let end = src.find("&tags=").unwrap_or(src.len() + 1);
-                let id = &src[start..end];
+        Ok(())
+    }
 
-                let downloaded: Vec<_> =
-                    fs::read_dir(self.options.folder.as_ref().unwrap_or(&".".to_string()))?
-                        .collect();
-                for file in &downloaded {
-                    let name = file.as_ref().unwrap().file_name();
-                    if name.to_str().unwrap().starts_with(id) {
-                        println!("{id} already exists, skipping.");
-                        continue 'outer;
-                    }
+    async fn get_elements_http(
+        &self,
+        a_s: Vec<scraper::ElementRef<'_>>,
+        client: &reqwest::Client,
+    ) -> Result<(), Box<dyn Error>> {
+        'outer: for a in a_s {
+            print!("Extracting information...");
+            io::stdout().flush().expect("cannot flush stdout");
+
+            let href = a.value().attr("href").unwrap();
+            let id = Self::extract_id_from_url(href);
+
+            let saved = fs::read_dir(self.options.folder.as_deref().unwrap_or("."))?;
+            for file in saved {
+                let name = file.as_ref().unwrap().file_name();
+                if name.to_str().unwrap().starts_with(id) {
+                    println!("{id} already exists, skipping.");
+                    continue 'outer;
                 }
-
-                self.download_noapi(client, id).await?;
             }
+
+            self.download_noapi(client, id).await?;
         }
 
         Ok(())
@@ -459,11 +456,10 @@ impl Session {
         let res = client.get(&src).send().await?.text().await?;
 
         let file_url = Self::extract_file_url(&res);
-        let default_folder = String::from('.');
         let title = Self::extract_title(&res);
-        let folder = self.options.folder.as_ref().unwrap_or(&default_folder);
-        let extention = Path::new(file_url).extension().unwrap().to_str().unwrap();
-        let path_string = format!("{}/{} {}.{}", folder, id, title, extention,);
+        let folder = self.options.folder.as_deref().unwrap_or(".");
+        let extention = file_url.split('.').next_back().unwrap();
+        let path_string = format!("./{}/{} {}.{}", folder, id, title, extention);
 
         print!("downloading...");
         io::stdout().flush().expect("cannot flush stdout");
@@ -477,7 +473,7 @@ impl Session {
         Ok(())
     }
 
-    async fn get_posts_api(&self, base: &String, tag: &str) -> Result<(), Box<dyn Error>> {
+    async fn get_posts_api(&self, base: &str, tag: &str) -> Result<(), Box<dyn Error>> {
         let range = Range {
             start: self.options.start.unwrap_or(1),
             end: self.options.end.unwrap_or(u64::MAX),
@@ -487,7 +483,7 @@ impl Session {
                 "{}&tags={}+{}&pid={}&limit={}",
                 base,
                 tag,
-                self.options.tags.as_ref().unwrap_or(&String::new()),
+                self.options.tags.as_deref().unwrap_or_default(),
                 page,
                 PID_STEP_LIST,
             );
@@ -521,10 +517,10 @@ impl Session {
                     let res = reqwest::get(url).await?.text().await?;
                     Self::extract_title(&res).to_string()
                 };
-                let extension = file_url.split_terminator('.').next_back().unwrap();
+                let extension = file_url.split('.').next_back().unwrap();
                 let path_string = format!(
-                    "{}/{} {}.{}",
-                    self.options.folder.as_ref().unwrap_or(&String::from('.')),
+                    "./{}/{} {}.{}",
+                    self.options.folder.as_deref().unwrap_or("."),
                     id,
                     name,
                     extension,
@@ -547,10 +543,8 @@ impl Session {
         Ok(())
     }
 
-    fn create(opts: &SessionOptions) -> Self {
-        Self {
-            options: opts.clone(),
-        }
+    fn create(options: SessionOptions) -> Self {
+        Self { options }
     }
 
     pub async fn start(&self) -> Result<(), Box<dyn Error>> {
