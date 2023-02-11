@@ -1,11 +1,11 @@
 fn show_help() {
     println!("Example usage:");
-    println!("    getbooru get favorites // Get all of your favorites into current directory");
-    println!("    getbooru add favorites by urls.txt // Add urls in links.txt to your favorites");
-    println!("    getbooru get posts from 6 to 9 api // Get posts in page 6-9, using API");
-    println!("    getbooru get posts with 1boy into dir // Get posts with tag '1boy' into ./dir/");
+    println!("    getbooru get favorites # (WebDriver needed) Get all of your favorites into current directory");
+    println!("    getbooru add favorites by urls.txt # (WebDriver needed) Add urls in links.txt to your favorites");
+    println!("    getbooru get posts from 6 to 9 api # Get posts in page 6-9, using API");
+    println!("    getbooru get posts with 1boy into dir # Get posts with tag '1boy' into ./dir/");
     println!(
-        "Note: the 'api' switch can be combined with 'quick', which speeds up the progress but alternates saved file names"
+        "Note: 'api' can be combined with 'quick', which speeds up the progress but alternates file names."
     );
 }
 
