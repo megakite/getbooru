@@ -502,6 +502,7 @@ impl Session {
                 page,
                 PID_STEP_LIST,
             );
+            dbg!(&list_url);
             let res = reqwest::get(list_url).await?.text().await?;
 
             let doc = roxmltree::Document::parse(&res)?;
@@ -522,11 +523,6 @@ impl Session {
             .ok_or("cannot find XML tag <id>")?
             .text()
             .ok_or("no text in XML tag <id>")?;
-        let file_url = nodes
-            .find(|n| n.has_tag_name("file_url"))
-            .ok_or("cannot find XML tag <file_url>")?
-            .text()
-            .ok_or("no text in XML tag <file_url>")?;
         let name = if self.options.quick {
             let tags = nodes
                 .find(|n| n.has_tag_name("tags"))
@@ -543,6 +539,11 @@ impl Session {
             let res = reqwest::get(url).await?.text().await?;
             Self::extract_title(&res)?.to_string()
         };
+        let file_url = nodes
+            .find(|n| n.has_tag_name("file_url"))
+            .ok_or("cannot find XML tag <file_url>")?
+            .text()
+            .ok_or("no text in XML tag <file_url>")?;
         let extension = file_url
             .split('.')
             .next_back()
@@ -562,7 +563,12 @@ impl Session {
         }
 
         let client = self.new_client_http()?;
-        self.download(&client, id).await?;
+
+        print!("downloading {}...", id);
+        io::stdout().flush().expect("cannot flush stdout");
+        let img_bytes = client.get(file_url).send().await?.bytes().await?;
+        File::create(path_string)?.write_all(&img_bytes)?;
+        println!("complete.");
 
         Ok(())
     }
