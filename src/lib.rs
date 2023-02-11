@@ -3,7 +3,7 @@ use std::{
     error::Error,
     fs::{self, File},
     io::{self, Read, Write},
-    ops::Range,
+    ops::{Range, RangeInclusive},
     path::Path,
 };
 
@@ -35,7 +35,7 @@ pub struct SessionOptions {
     file: Option<String>,
     folder: Option<String>,
     // Methods
-    use_api: bool,
+    api: bool,
     quick: bool,
 }
 
@@ -74,7 +74,7 @@ impl SessionOptions {
         self
     }
 
-    pub fn begin(&mut self, n: u64) -> &mut Self {
+    pub fn start(&mut self, n: u64) -> &mut Self {
         self.start = Some(n);
         self
     }
@@ -96,8 +96,8 @@ impl SessionOptions {
         self
     }
 
-    pub fn use_api(&mut self, b: bool) -> &mut Self {
-        self.use_api = b;
+    pub fn api(&mut self, b: bool) -> &mut Self {
+        self.api = b;
         self
     }
     pub fn quick(&mut self, b: bool) -> &mut Self {
@@ -119,27 +119,31 @@ impl Session {
         SessionOptions::new()
     }
 
-    fn extract_file_url(res: &str) -> &str {
-        let re = regex::Regex::new(r"https://img3.gelbooru.com/(.*)\.[A-z0-9]+").unwrap();
-        let mat = re.find(res).unwrap();
-
-        &res[mat.range()]
+    fn create(options: SessionOptions) -> Self {
+        Self { options }
     }
 
-    fn extract_id_from_url(url: &str) -> &str {
-        let re = regex::Regex::new("id=([0-9]+)&*").unwrap();
-        let cap = re.captures(url).unwrap();
-        let mat = cap.get(1).unwrap();
+    fn extract_file_url(res: &str) -> Result<&str, &'static str> {
+        let re = regex::Regex::new(r"https://img3.gelbooru.com/(.*)\.[A-z0-9]+").unwrap();
+        let mat = re.find(res).ok_or("cannot find file url")?;
 
-        &url[mat.range()]
+        Ok(&res[mat.range()])
+    }
+
+    fn extract_id_from_url(url: &str) -> Result<&str, &'static str> {
+        let re = regex::Regex::new("id=([0-9]+)&*").unwrap();
+        let cap = re.captures(url).ok_or("cannot find id")?;
+        let mat = cap.get(1).ok_or("cannot get id")?;
+
+        Ok(&url[mat.range()])
     }
 
     /// Extract post title from given response,
     /// replacing all invalid characters across different platforms with `_`.
-    fn extract_title(res: &str) -> Cow<str> {
+    fn extract_title(res: &str) -> Result<Cow<str>, &'static str> {
         let re = regex::Regex::new("<title>(.*?)</title>").unwrap();
-        let cap = re.captures(res).unwrap();
-        let mat = cap.get(1).unwrap();
+        let cap = re.captures(res).ok_or("cannot find title")?;
+        let mat = cap.get(1).ok_or("cannot get title")?;
         let range = if mat.range().len() < TITLE_LENGTH_LIMIT {
             mat.range()
         } else {
@@ -150,7 +154,7 @@ impl Session {
         };
         let re = regex::Regex::new("[/\\?%*:|\"<>]").unwrap();
 
-        re.replace_all(&res[range], "_")
+        Ok(re.replace_all(&res[range], "_"))
     }
 
     async fn new_client_webdriver(
@@ -159,7 +163,7 @@ impl Session {
         let c = fantoccini::ClientBuilder::native()
             .connect("http://localhost:4444")
             .await
-            .expect("failed to connect to WebDriver");
+            .expect("a WebDriver should be running on port 4444");
 
         print!("Entering home page...");
         io::stdout().flush().expect("cannot flush stdout");
@@ -177,7 +181,8 @@ impl Session {
             c.add_cookie(cookie).await?;
         }
         if let Some(fringe_benefits) = self.options.fringe_benefits.as_deref() {
-            let cookie = fantoccini::cookies::Cookie::new("fringeBenefits", fringe_benefits.to_owned());
+            let cookie =
+                fantoccini::cookies::Cookie::new("fringeBenefits", fringe_benefits.to_owned());
             c.add_cookie(cookie).await?;
         }
 
@@ -195,7 +200,7 @@ impl Session {
         headers.insert(
             reqwest::header::COOKIE,
             reqwest::header::HeaderValue::from_str(&cookie)
-                .expect("invalid characters found generating cookie"),
+                .expect("invalid characters found when generating Cookie header"),
         );
 
         reqwest::Client::builder().default_headers(headers).build()
@@ -204,14 +209,14 @@ impl Session {
     async fn add_to_favorites(&self) -> Result<(), Box<dyn Error>> {
         println!("Start adding urls to favorites...");
 
-        let client = Self::new_client_webdriver(&self).await?;
+        let client = self.new_client_webdriver().await?;
 
         let mut buf = String::new();
         if let Some(f) = &self.options.file {
             File::open(f)?.read_to_string(&mut buf)?;
         };
         for url in buf.lines() {
-            print!("Entering {url} ...");
+            print!("Entering {} ...", url);
             io::stdout().flush().expect("cannot flush stdout");
 
             client.goto(url).await?;
@@ -243,19 +248,19 @@ impl Session {
     async fn get_favorites(&self) -> Result<(), Box<dyn Error>> {
         println!("Start getting favorites...");
 
-        let client = Self::new_client_webdriver(&self).await?;
+        let client = self.new_client_webdriver().await?;
 
         let base = format!(
             "https://gelbooru.com/index.php?page=favorites&s=view&id={}",
             self.options.user_id.as_deref().unwrap_or_default()
         );
 
-        let range = Range {
-            start: self.options.start.unwrap_or(1),
-            end: self.options.end.unwrap_or(u64::MAX),
-        };
+        let range = RangeInclusive::new(
+            self.options.start.unwrap_or(1),
+            self.options.end.unwrap_or(u64::MAX),
+        );
         for page in range {
-            print!("Entering favorites, page {page}...",);
+            print!("Entering favorites, page {}...", page);
             io::stdout().flush().expect("cannot flush stdout");
 
             let pid = (page - 1) * PID_STEP_VIEW;
@@ -290,31 +295,38 @@ impl Session {
             print!("Extracting information...");
             io::stdout().flush().expect("cannot flush stdout");
 
-            let src = a.attr("href").await?.unwrap();
-            let id = Self::extract_id_from_url(&src);
+            let src = a
+                .attr("href")
+                .await?
+                .ok_or("cannot find href in thumbnail element")?;
+            let id = Self::extract_id_from_url(&src)?;
 
             let saved = fs::read_dir(self.options.folder.as_deref().unwrap_or("."))?;
             for file in saved {
-                let name = file.as_ref().unwrap().file_name();
-                if name.to_str().unwrap().starts_with(id) {
+                let name = file?.file_name();
+                if name
+                    .to_str()
+                    .ok_or("invalid character in saved file names")?
+                    .starts_with(id)
+                {
                     println!("{id} already exists, skipping.");
                     continue 'outer;
                 }
             }
 
-            let client = Self::new_client_http(&self)?;
-            self.download_noapi(&client, id).await?;
+            let client = self.new_client_http()?;
+            self.download(&client, id).await?;
         }
 
         Ok(())
     }
 
     async fn get_posts(&self) -> Result<(), Box<dyn Error>> {
-        println!("Start getting by tags...");
+        println!("Start getting posts...");
 
-        let client = Self::new_client_http(&self)?;
+        let client = self.new_client_http()?;
 
-        let base = if self.options.use_api {
+        let base = if self.options.api {
             format!(
                 "https://gelbooru.com/index.php?page=dapi&s=post&q=index&api_key={}&user_id={}",
                 self.options
@@ -330,7 +342,7 @@ impl Session {
             String::from("https://gelbooru.com/index.php?page=post&s=list")
         };
 
-        self.get_posts_with_tags(base, client).await?;
+        self.get_posts_with_tags(&base, &client).await?;
 
         println!("Finished getting all tags.");
 
@@ -339,8 +351,8 @@ impl Session {
 
     async fn get_posts_with_tags(
         &self,
-        base: String,
-        client: reqwest::Client,
+        base: &str,
+        client: &reqwest::Client,
     ) -> Result<(), Box<dyn Error>> {
         if let Some(f) = self.options.file.as_deref() {
             let mut buf = String::new();
@@ -357,21 +369,21 @@ impl Session {
                     self.options.tags.as_deref().unwrap_or_default(),
                 );
 
-                if self.options.use_api {
-                    self.get_posts_api(&base, current_tag).await?;
+                if self.options.api {
+                    self.get_posts_api(base, current_tag).await?;
                 } else {
-                    self.get_posts_noapi(&base, current_tag, &client).await?;
+                    self.get_posts_noapi(base, current_tag, client).await?;
                 }
             }
         } else {
-            if self.options.use_api {
-                self.get_posts_api(&base, self.options.tags.as_deref().unwrap_or_default())
+            if self.options.api {
+                self.get_posts_api(base, self.options.tags.as_deref().unwrap_or_default())
                     .await?;
             } else {
                 self.get_posts_noapi(
-                    &base,
+                    base,
                     self.options.tags.as_deref().unwrap_or_default(),
-                    &client,
+                    client,
                 )
                 .await?;
             }
@@ -386,12 +398,12 @@ impl Session {
         tag: &str,
         client: &reqwest::Client,
     ) -> Result<(), Box<dyn Error>> {
-        let range = Range {
-            start: self.options.start.unwrap_or(1),
-            end: self.options.end.unwrap_or(u64::MAX),
-        };
+        let range = RangeInclusive::new(
+            self.options.start.unwrap_or(1),
+            self.options.end.unwrap_or(u64::MAX),
+        );
         for page in range {
-            println!("Entering posts, page {page}...");
+            println!("Entering posts, page {}...", page);
             io::stdout().flush().expect("cannot flush stdout");
 
             let pid = (page - 1) * PID_STEP_LIST;
@@ -400,11 +412,11 @@ impl Session {
                 base,
                 tag,
                 self.options.tags.as_deref().unwrap_or_default(),
-                pid.to_string()
+                pid
             );
             let res = client.get(list_url).send().await?.text().await?;
             let list = scraper::Html::parse_document(&res);
-            let selector = scraper::Selector::parse("article.thumbnail-preview a").unwrap();
+            let selector = scraper::Selector::parse("article.thumbnail-preview a")?;
             let a_s: Vec<_> = list.select(&selector).collect();
             if a_s.is_empty() {
                 println!("no elements present.");
@@ -426,58 +438,61 @@ impl Session {
             print!("Extracting information...");
             io::stdout().flush().expect("cannot flush stdout");
 
-            let href = a.value().attr("href").unwrap();
-            let id = Self::extract_id_from_url(href);
+            let href = a
+                .value()
+                .attr("href")
+                .ok_or("cannot find href in thumbnail element")?;
+            let id = Self::extract_id_from_url(href)?;
 
             let saved = fs::read_dir(self.options.folder.as_deref().unwrap_or("."))?;
             for file in saved {
-                let name = file.as_ref().unwrap().file_name();
-                if name.to_str().unwrap().starts_with(id) {
+                let name = file?.file_name();
+                if name
+                    .to_str()
+                    .ok_or("invalid character in saved file names")?
+                    .starts_with(id)
+                {
                     println!("{id} already exists, skipping.");
                     continue 'outer;
                 }
             }
 
-            self.download_noapi(client, id).await?;
+            self.download(client, id).await?;
         }
 
         Ok(())
     }
 
-    async fn download_noapi(
-        &self,
-        client: &reqwest::Client,
-        id: &str,
-    ) -> Result<(), reqwest::Error> {
+    async fn download(&self, client: &reqwest::Client, id: &str) -> Result<(), Box<dyn Error>> {
         print!("entering {id} ...");
         io::stdout().flush().expect("cannot flush stdout");
 
         let src = format!("https://gelbooru.com/index.php?page=post&s=view&id={id}");
         let res = client.get(&src).send().await?.text().await?;
 
-        let file_url = Self::extract_file_url(&res);
-        let title = Self::extract_title(&res);
+        let file_url = Self::extract_file_url(&res)?;
+        let title = Self::extract_title(&res)?;
         let folder = self.options.folder.as_deref().unwrap_or(".");
-        let extention = file_url.split('.').next_back().unwrap();
+        let extention = file_url
+            .split('.')
+            .next_back()
+            .ok_or("source file has no extension")?;
         let path_string = format!("./{}/{} {}.{}", folder, id, title, extention);
 
         print!("downloading...");
         io::stdout().flush().expect("cannot flush stdout");
 
         let img_bytes = client.get(file_url).send().await?.bytes().await?;
-        File::create(&path_string)
-            .expect("cannot create image file")
-            .write(&img_bytes)
-            .expect("cannot write to image file");
+        File::create(path_string)?.write_all(&img_bytes)?;
         println!("complete.");
         Ok(())
     }
 
     async fn get_posts_api(&self, base: &str, tag: &str) -> Result<(), Box<dyn Error>> {
-        let range = Range {
-            start: self.options.start.unwrap_or(1),
-            end: self.options.end.unwrap_or(u64::MAX),
-        };
+        let range = RangeInclusive::new(
+            self.options.start.unwrap_or(1),
+            self.options.end.unwrap_or(u64::MAX),
+        );
         for page in range {
             let list_url = format!(
                 "{}&tags={}+{}&pid={}&limit={}",
@@ -488,70 +503,75 @@ impl Session {
                 PID_STEP_LIST,
             );
             let res = reqwest::get(list_url).await?.text().await?;
+
             let doc = roxmltree::Document::parse(&res)?;
             let posts = doc.descendants().filter(|n| n.has_tag_name("post"));
             for post in posts {
-                let mut nodes = post.descendants();
-                let id = nodes
-                    .find(|n| n.has_tag_name("id"))
-                    .unwrap()
-                    .text()
-                    .unwrap();
-                let file_url = nodes
-                    .find(|n| n.has_tag_name("file_url"))
-                    .unwrap()
-                    .text()
-                    .unwrap();
-                let name = if self.options.quick {
-                    let tags = nodes
-                        .find(|n| n.has_tag_name("tags"))
-                        .unwrap()
-                        .text()
-                        .unwrap();
-                    let mut temp = tags.to_string();
-                    temp.truncate(TITLE_LENGTH_LIMIT);
-                    temp
-                } else {
-                    let url =
-                        String::from("https://gelbooru.com/index.php?page=post&s=view&id=") + id;
-                    let res = reqwest::get(url).await?.text().await?;
-                    Self::extract_title(&res).to_string()
-                };
-                let extension = file_url.split('.').next_back().unwrap();
-                let path_string = format!(
-                    "./{}/{} {}.{}",
-                    self.options.folder.as_deref().unwrap_or("."),
-                    id,
-                    name,
-                    extension,
-                );
-
-                let path = Path::new(&path_string);
-                if path.exists() {
-                    println!("{id} already exists, skipping.");
-                    continue;
-                }
-
-                print!("Downloading {id}...");
-                io::stdout().flush().expect("cannot flush stdout");
-                let img_bytes = reqwest::get(file_url).await?.bytes().await?;
-                File::create(path)?.write(&img_bytes)?;
-                println!("complete.");
+                self.get_post_by_node(post).await?;
             }
         }
 
         Ok(())
     }
 
-    fn create(options: SessionOptions) -> Self {
-        Self { options }
+    async fn get_post_by_node(&self, post: roxmltree::Node<'_, '_>) -> Result<(), Box<dyn Error>> {
+        let mut nodes = post.descendants();
+
+        let id = nodes
+            .find(|n| n.has_tag_name("id"))
+            .ok_or("cannot find XML tag <id>")?
+            .text()
+            .ok_or("no text in XML tag <id>")?;
+        let file_url = nodes
+            .find(|n| n.has_tag_name("file_url"))
+            .ok_or("cannot find XML tag <file_url>")?
+            .text()
+            .ok_or("no text in XML tag <file_url>")?;
+        let name = if self.options.quick {
+            let tags = nodes
+                .find(|n| n.has_tag_name("tags"))
+                .ok_or("cannot find XML tag <tags>")?
+                .text()
+                .ok_or("no text in XML tag <tags>")?;
+            if tags.len() < TITLE_LENGTH_LIMIT {
+                String::from(tags)
+            } else {
+                String::from(&tags[0..TITLE_LENGTH_LIMIT])
+            }
+        } else {
+            let url = String::from("https://gelbooru.com/index.php?page=post&s=view&id=") + id;
+            let res = reqwest::get(url).await?.text().await?;
+            Self::extract_title(&res)?.to_string()
+        };
+        let extension = file_url
+            .split('.')
+            .next_back()
+            .ok_or("source file has no extension")?;
+        let path_string = format!(
+            "./{}/{} {}.{}",
+            self.options.folder.as_deref().unwrap_or("."),
+            id,
+            name,
+            extension,
+        );
+
+        let path = Path::new(&path_string);
+        if path.exists() {
+            println!("{id} already exists, skipping.");
+            return Ok(());
+        }
+
+        let client = self.new_client_http()?;
+        self.download(&client, id).await?;
+
+        Ok(())
     }
 
     pub async fn start(&self) -> Result<(), Box<dyn Error>> {
         match self.options.action {
-            Action::GetPosts => Self::get_posts(&self).await?,
-            Action::GetFavorites => Self::get_favorites(&self).await?,
-            Action::AddFavorites => Self::add_to_favorites(&self).await?,
+            Action::GetPosts => self.get_posts().await?,
+            Action::GetFavorites => self.get_favorites().await?,
+            Action::AddFavorites => self.add_to_favorites().await?,
         };
 
         Ok(())

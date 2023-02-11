@@ -1,10 +1,11 @@
 pub fn show_help() {
     println!("Example usage:");
-    println!("getbooru get favorites // Get all of your favorites into current directory");
-    println!("getbooru add favorites by urls.txt // Add urls in links.txt to your favorites");
-    println!("getbooru get posts from 6 to 9 api // Get posts in page 6-9 using Gelbooru API");
+    println!("    getbooru get favorites // Get all of your favorites into current directory");
+    println!("    getbooru add favorites by urls.txt // Add urls in links.txt to your favorites");
+    println!("    getbooru get posts from 6 to 9 api // Get posts in page 6-9, using API");
+    println!("    getbooru get posts with 1boy into dir // Get posts with tag '1boy' into ./dir/");
     println!(
-        "getbooru get posts with game_cg into dir // Get posts with tag 'game_cg' into ./dir/"
+        "Note: the 'api' switch can be combined with 'quick', which speeds up the progress but alternates saved file names"
     );
 }
 
@@ -12,16 +13,16 @@ pub fn show_help() {
 async fn main() {
     let mut opt = getbooru::Session::options();
 
-    if let Some(api_key) = dotenv::var("api_key").ok() {
+    if let Ok(api_key) = dotenv::var("api_key") {
         opt.api_key(api_key);
     }
-    if let Some(user_id) = dotenv::var("user_id").ok() {
+    if let Ok(user_id) = dotenv::var("user_id") {
         opt.user_id(user_id);
     }
-    if let Some(pass_hash) = dotenv::var("pass_hash").ok() {
+    if let Ok(pass_hash) = dotenv::var("pass_hash") {
         opt.pass_hash(pass_hash);
     }
-    if let Some(fringe_benefits) = dotenv::var("fringeBenefits").ok() {
+    if let Ok(fringe_benefits) = dotenv::var("fringeBenefits") {
         opt.fringe_benefits(fringe_benefits);
     }
 
@@ -35,7 +36,7 @@ async fn main() {
             Some(s) if s == "favorites" => {
                 opt.get_favorites();
             }
-            Some(_) | None => {
+            _ => {
                 show_help();
                 return;
             }
@@ -44,21 +45,22 @@ async fn main() {
             Some(s) if s == "favorites" => {
                 opt.add_favorites();
             }
-            Some(_) | None => {
+            _ => {
                 show_help();
                 return;
             }
         },
-        Some(_) | None => {
+        Some(_) => {
             show_help();
             return;
         }
+        None => {}
     }
 
     while let Some(s) = args.next() {
         if s == "from" {
             if let Some(n) = args.next() {
-                opt.begin(n.parse::<u64>().unwrap());
+                opt.start(n.parse::<u64>().unwrap());
                 continue;
             }
         }
@@ -87,7 +89,7 @@ async fn main() {
             }
         }
         if s == "api" {
-            opt.use_api(true);
+            opt.api(true);
             continue;
         }
         if s == "quick" {
