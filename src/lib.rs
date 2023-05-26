@@ -57,20 +57,20 @@ impl SessionOptions {
         self
     }
 
-    pub fn user_id(&mut self, s: impl Into<String>) -> &mut Self {
-        self.user_id = Some(s.into());
+    pub fn user_id(&mut self, s: &str) -> &mut Self {
+        self.user_id = Some(s.to_owned());
         self
     }
-    pub fn api_key(&mut self, s: impl Into<String>) -> &mut Self {
-        self.api_key = Some(s.into());
+    pub fn api_key(&mut self, s: &str) -> &mut Self {
+        self.api_key = Some(s.to_owned());
         self
     }
-    pub fn pass_hash(&mut self, s: impl Into<String>) -> &mut Self {
-        self.pass_hash = Some(s.into());
+    pub fn pass_hash(&mut self, s: &str) -> &mut Self {
+        self.pass_hash = Some(s.to_owned());
         self
     }
-    pub fn fringe_benefits(&mut self, s: impl Into<String>) -> &mut Self {
-        self.fringe_benefits = Some(s.into());
+    pub fn fringe_benefits(&mut self, s: &str) -> &mut Self {
+        self.fringe_benefits = Some(s.to_owned());
         self
     }
 
@@ -83,16 +83,16 @@ impl SessionOptions {
         self
     }
 
-    pub fn tags(&mut self, s: impl Into<String>) -> &mut Self {
-        self.tags = Some(s.into());
+    pub fn tags(&mut self, s: &str) -> &mut Self {
+        self.tags = Some(s.to_owned());
         self
     }
-    pub fn file(&mut self, s: impl Into<String>) -> &mut Self {
-        self.file = Some(s.into());
+    pub fn file(&mut self, s: &str) -> &mut Self {
+        self.file = Some(s.to_owned());
         self
     }
-    pub fn folder(&mut self, s: impl Into<String>) -> &mut Self {
-        self.folder = Some(s.into());
+    pub fn folder(&mut self, s: &str) -> &mut Self {
+        self.folder = Some(s.to_owned());
         self
     }
 

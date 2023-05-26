@@ -308,11 +308,10 @@ dependencies = [
 
 [[package]]
 name = "getbooru"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "dotenv",
  "fantoccini",
- "html5ever",
  "regex",
  "reqwest",
  "roxmltree",
