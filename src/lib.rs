@@ -17,6 +17,7 @@ enum Action {
     GetPosts,
     GetFavorites,
     AddFavorites,
+    GetViews,
 }
 
 #[derive(Debug, Default)]
@@ -54,6 +55,10 @@ impl SessionOptions {
     }
     pub fn add_favorites(&mut self) -> &mut Self {
         self.action = Action::AddFavorites;
+        self
+    }
+    pub fn get_views(&mut self) -> &mut Self {
+        self.action = Action::GetViews;
         self
     }
 
@@ -124,7 +129,7 @@ impl Session {
     }
 
     fn extract_file_url(res: &str) -> Result<&str, &'static str> {
-        let re = regex::Regex::new(r"https://img3.gelbooru.com/(.*)\.[A-z0-9]+").unwrap();
+        let re = regex::Regex::new(r"https://(img[123]|video-cdn[123]).gelbooru.com/(.*)\.[A-z0-9]+").unwrap();
         let mat = re.find(res).ok_or("cannot find file url")?;
 
         Ok(&res[mat.range()])
@@ -315,7 +320,8 @@ impl Session {
             }
 
             let client = self.new_client_http()?;
-            self.download(&client, id).await?;
+            let src = format!("https://gelbooru.com/index.php?page=post&s=view&id={id}");
+            self.download(&client, &src).await?;
         }
 
         Ok(())
@@ -429,6 +435,51 @@ impl Session {
         Ok(())
     }
 
+    async fn get_views(&self) -> Result<(), Box<dyn Error>> {
+        let mut err_count = 0;
+        let client = self.new_client_http()?;
+
+        println!("Start getting views...");
+        io::stdout().flush().expect("cannot flush stdout");
+
+        let mut buf = String::new();
+        if let Some(f) = &self.options.file {
+            File::open(f)?.read_to_string(&mut buf)?;
+        };
+        'outer: for url in buf.lines() {
+            let id = match Self::extract_id_from_url(url) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("Error extracting id from {url} : {e}");
+                    err_count += 1;
+                    continue;
+                }
+            };
+
+            let saved = fs::read_dir(self.options.folder.as_deref().unwrap_or("."))?;
+            for file in saved {
+                let name = file?.file_name();
+                if name
+                    .to_str()
+                    .ok_or("invalid character in saved file names")?
+                    .starts_with(id)
+                {
+                    println!("{id} already exists, skipping.");
+                    continue 'outer;
+                }
+            }
+
+            if let Err(e) = self.download(&client, url).await {
+                err_count += 1;
+                eprintln!("failed downloading file: {e}");
+            }
+        }
+
+        println!("Finished getting all views. Error count: {err_count}");
+        
+        Ok(())
+    }
+
     async fn get_elements_http(
         &self,
         a_s: Vec<scraper::ElementRef<'_>>,
@@ -457,18 +508,19 @@ impl Session {
                 }
             }
 
-            self.download(client, id).await?;
+            let src = format!("https://gelbooru.com/index.php?page=post&s=view&id={id}");
+            self.download(client, &src).await?;
         }
 
         Ok(())
     }
 
-    async fn download(&self, client: &reqwest::Client, id: &str) -> Result<(), Box<dyn Error>> {
-        print!("entering {id} ...");
+    async fn download(&self, client: &reqwest::Client, src: &str) -> Result<(), Box<dyn Error>> {
+        print!("entering {src} ...");
         io::stdout().flush().expect("cannot flush stdout");
 
-        let src = format!("https://gelbooru.com/index.php?page=post&s=view&id={id}");
-        let res = client.get(&src).send().await?.text().await?;
+        let res = client.get(src).send().await?.text().await?;
+        let id = Self::extract_id_from_url(src)?;
 
         let file_url = Self::extract_file_url(&res)?;
         let title = Self::extract_title(&res)?;
@@ -578,6 +630,7 @@ impl Session {
             Action::GetPosts => self.get_posts().await?,
             Action::GetFavorites => self.get_favorites().await?,
             Action::AddFavorites => self.add_to_favorites().await?,
+            Action::GetViews => self.get_views().await?,
         };
 
         Ok(())
